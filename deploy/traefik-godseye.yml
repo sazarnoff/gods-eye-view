@@ -1,0 +1,55 @@
+# God's Eye View — godseye.azarnoff.us
+# Deployed to /Users/Shared/docker/traefik/dynamic/godseye.yml.
+#
+# An isolated file rather than an edit to routes.yml, so this can be changed or
+# pulled without touching the other routers.
+#
+# ⚠️ EXPOSURE: routes on this box are PUBLIC BY DEFAULT — Traefik applies no
+# source restriction unless a router asks for one. What makes this host safe is
+# the auth gate, not a network restriction: the whole host is routed to
+# oauth2-proxy, which lets nothing through without a Keycloak session belonging
+# to an address in authenticated-emails.txt.
+#
+# That gate is doing more work here than on a normal app. The upstream server is
+# an API-KEY BROKER — anyone who can send it HTTP can spend the Google Maps and
+# OpenAI quota it holds. An unauthenticated path to godseye-app is a billing
+# hole, not merely an information leak.
+#
+# Do NOT reach for the `internal-only` middleware expecting a LAN allowlist. On
+# this box it is a DENY-ALL: Docker Desktop SNATs every inbound connection to the
+# traefik_default gateway 172.26.0.1, so Traefik never sees a real client IP and
+# none of the allowlisted ranges can ever match. And do NOT "fix" that by adding
+# 172.26.0.0/16 — every request arrives from that address, so it would open the
+# route to the entire internet while still reading like a private restriction.
+
+http:
+  routers:
+    godseye:
+      rule: Host(`godseye.azarnoff.us`)
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: cloudflare
+        domains:
+          - main: azarnoff.us
+            sans:
+              - "*.azarnoff.us"
+      # Everything, including /oauth2/*, goes to the proxy. It serves its own
+      # sign-in and callback endpoints and forwards the rest to Vite once there
+      # is a session.
+      service: godseye_oauth_svc
+      middlewares:
+        - security-headers@file
+
+  services:
+    godseye_oauth_svc:
+      loadBalancer:
+        servers:
+          - url: http://godseye-oauth2-proxy:4180
+
+    # Not routed directly, deliberately. The Vite server publishes no host port
+    # and has no router of its own, so the only path to it is through the proxy.
+    godseye_svc:
+      loadBalancer:
+        servers:
+          - url: http://godseye-app:4173

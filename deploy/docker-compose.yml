@@ -1,0 +1,95 @@
+# God's Eye View — godseye.azarnoff.us on the M4 Mini.
+# Deployed to /Users/Shared/docker/gods-eye-view/deploy/docker-compose.yml.
+#
+# Run compose from THIS directory; the build context is the repo root one level up.
+#
+# Neither container publishes a host port. Traefik routes the whole host to
+# oauth2-proxy over the shared traefik_default network, so the proxy is the only
+# path to the app and the gate cannot be walked around from the LAN. That matters
+# more here than it did for genii: this app's server is an API-key broker, and
+# anyone who can send it HTTP can spend Scott's Google Maps and OpenAI quota.
+#
+# Auth is the shared Keycloak at https://auth.azarnoff.us, realm "personal" —
+# the same realm and the same Google federation that trips.azarnoff.us uses.
+# The shape differs because trip-planner implements OIDC inside the app; this is
+# unmodified upstream code, so the gate lives in front of it instead.
+
+services:
+  godseye-app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: godseye-app
+    restart: unless-stopped
+    secrets:
+      - source: godseye_env
+        target: /run/secrets/godseye_env
+        mode: 0400
+    healthcheck:
+      # Vite's first boot pre-bundles Cesium, which is a large dependency —
+      # hence the long start_period. A short one flaps the container.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:4173/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    networks:
+      - traefik_default
+
+  godseye-oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    container_name: godseye-oauth2-proxy
+    restart: unless-stopped
+    depends_on:
+      godseye-app:
+        condition: service_healthy
+    command:
+      # client-id and client-secret live in the config file, which is a Docker
+      # secret. Nothing sensitive is passed as an environment variable.
+      - --config=/run/secrets/oauth2_proxy_cfg
+      - --http-address=0.0.0.0:4180
+      - --provider=keycloak-oidc
+      - --oidc-issuer-url=https://auth.azarnoff.us/realms/personal
+      - --redirect-url=https://godseye.azarnoff.us/oauth2/callback
+      - --upstream=http://godseye-app:4173
+      - --reverse-proxy=true
+      # Straight to Keycloak rather than an interstitial "Sign in with…" page.
+      - --skip-provider-button=true
+      - --set-xauthrequest=true
+      # The realm's other clients all require S256; Keycloak advertises PKCE and
+      # oauth2-proxy warns if you ignore it.
+      - --code-challenge-method=S256
+      # EXACTLY ONE ADDRESS MAY HOLD A SESSION HERE — see authenticated-emails.txt.
+      # This is deliberately not --email-domain=azarnoff.us. The realm's Google
+      # IdP creates a user for any Google account that tries, so the realm proves
+      # only who you are; this file is what decides who gets in. A one-line edit
+      # plus a restart adds someone, and nothing else in the stack grants access.
+      - --authenticated-emails-file=/etc/oauth2-proxy/authenticated-emails.txt
+      # A week, refreshed hourly while in use. Shorter than genii's 30 days on
+      # purpose: a live session here can spend metered Google and OpenAI quota,
+      # so a forgotten browser is a billing exposure, not just an open page.
+      - --cookie-expire=168h
+      - --cookie-refresh=1h
+      - --cookie-secure=true
+      - --cookie-samesite=lax
+      - --cookie-domain=godseye.azarnoff.us
+    volumes:
+      # Not a secret — an allowlist should be readable and version-controlled.
+      - ./authenticated-emails.txt:/etc/oauth2-proxy/authenticated-emails.txt:ro
+    secrets:
+      - source: oauth2_proxy_cfg
+        target: /run/secrets/oauth2_proxy_cfg
+        mode: 0400
+    networks:
+      - traefik_default
+
+secrets:
+  # Both generated on the box by deploy/make-secrets.sh — never in the repo.
+  godseye_env:
+    file: ./secrets/godseye.env
+  oauth2_proxy_cfg:
+    file: ./secrets/oauth2-proxy.cfg
+
+networks:
+  traefik_default:
+    external: true

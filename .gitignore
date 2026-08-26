@@ -10,3 +10,9 @@ output/
 .DS_Store
 .gstack/
 3d-models/
+
+# Deployment secrets (see deploy/secrets/.gitignore)
+deploy/secrets/*
+!deploy/secrets/.gitignore
+*.secret
+.env.*
