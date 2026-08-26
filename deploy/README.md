@@ -33,7 +33,7 @@ Two independent fences, and it matters which does what:
 - **Keycloak realm `personal`** decides *who you are*. Its Google IdP creates a user for any Google account that tries, so a valid token proves identity and nothing more.
 - **`authenticated-emails.txt`** decides *who gets in*. It contains exactly one address. This is deliberately **not** `--email-domain=azarnoff.us`.
 
-Adding someone is a one-line edit plus `docker compose restart godseye-oauth2-proxy`. Nothing else in the stack grants access.
+Adding someone is a one-line edit to that file. oauth2-proxy **watches it and reloads on change** (`watcher.go` logs `watching '/etc/oauth2-proxy/authenticated-emails.txt' for updates` at startup), so no restart is needed — restart only if a change appears not to take. Nothing else in the stack grants access.
 
 ## First deploy
 
