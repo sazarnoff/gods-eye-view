@@ -20,7 +20,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     container_name: godseye-app
-    restart: unless-stopped
+    restart: always
     secrets:
       - source: godseye_env
         target: /run/secrets/godseye_env
@@ -39,7 +39,7 @@ services:
   godseye-oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
     container_name: godseye-oauth2-proxy
-    restart: unless-stopped
+    restart: always
     depends_on:
       godseye-app:
         condition: service_healthy
