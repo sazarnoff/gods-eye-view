@@ -2,8 +2,8 @@
 # Materialise /app/.env from the Docker secret, then hand off to Vite.
 #
 # The app's documented configuration path is a .env file at the repo root
-# (README "Quick Start"), and vite.config.js reads it through loadEnv() at
-# line 7336. Writing the file here rather than passing environment variables
+# (README "Quick Start"), read through loadEnv() in
+# server/standalone/vite.config.js. Writing the file here rather than passing environment variables
 # keeps every key out of `docker inspect`, out of the compose file and out of
 # the process environment of anything but the server itself — AGENTS.md §6.
 set -eu
@@ -21,7 +21,7 @@ chmod 0400 /app/.env
 
 # HOST=0.0.0.0 does two jobs and both are required here. It binds the server so
 # oauth2-proxy can reach it over the container network, and it flips Vite's
-# `allowedHosts` to true (vite.config.js:7368) — without it the dev server
+# `allowedHosts` to true (build/vite.js, server.allowedHosts) — without it the dev server
 # rejects the Host header "godseye.azarnoff.us" outright and every request 403s
 # with a blocked-host page that looks nothing like an auth problem.
 if ! grep -q '^HOST=0\.0\.0\.0' /app/.env; then
@@ -29,11 +29,11 @@ if ! grep -q '^HOST=0\.0\.0\.0' /app/.env; then
   exit 1
 fi
 
-# Warn, but do not refuse to start. A keyless boot still serves the app and the
-# auth gate; the globe simply stays dark until the Maps key is filled in. That
-# is a deliberately recoverable state, not a broken deploy.
-if grep -q '^GOOGLE_MAPS_API_KEY=\s*$' /app/.env; then
-  echo "godseye: WARNING — GOOGLE_MAPS_API_KEY is empty; the 3D globe will not load." >&2
+# Informational only. Since upstream's keyless mode, a boot with neither key
+# serves Esri imagery and every keyless layer; photorealistic 3D needs one of
+# these two client-exposed keys.
+if ! grep -qE '^(GOOGLE_MAPS_API_KEY|CESIUM_ION_TOKEN)=[^[:space:]]' /app/.env; then
+  echo "godseye: note — no GOOGLE_MAPS_API_KEY or CESIUM_ION_TOKEN; running on keyless Esri imagery." >&2
 fi
 
 echo "godseye: starting Vite dev server on 0.0.0.0:4173"

@@ -1,11 +1,10 @@
 # God's Eye View — godseye.azarnoff.us
 #
-# This image runs the VITE DEV SERVER, deliberately, and that is not a shortcut.
-# ~10 of the app's data proxies in vite.config.js register only `configureServer`
-# and no `configurePreviewServer` — opensky (live aircraft), celestrak
-# (satellites), cctv, tomtom, firms, overpass, adsbdb, terrain-heights, gbfs and
-# adsblol among them. A `vite build && vite preview` deployment therefore serves
-# a photorealistic globe with none of the layers the app exists for.
+# This image runs the VITE DEV SERVER, deliberately. When it was built
+# (2026-08-25) ~10 data proxies registered only `configureServer`, so
+# `vite build && vite preview` served a globe with no live layers. Upstream has
+# since added `configurePreviewServer` to most providers (server/providers/);
+# a preview image may now work but is untested — see deploy/README.md.
 #
 # Upstream SECURITY.md sanctions exactly this shape: "The Vite server is a
 # development/preview server. If you expose it beyond localhost, put it behind

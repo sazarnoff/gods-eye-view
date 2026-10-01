@@ -6,7 +6,7 @@ Everything in this directory is **additive to upstream** — no file outside `de
 
 ## The two decisions that shape this stack
 
-**1. It runs the Vite dev server, on purpose.** About ten of the app's data proxies in `vite.config.js` register only a `configureServer` hook and no `configurePreviewServer` — `opensky` (live aircraft), `celestrak` (satellites), `cctv`, `tomtom`, `firms`, `overpass`, `adsbdb`, `terrain-heights`, `gbfs`, `adsblol`. A `vite build && vite preview` deployment therefore serves a photorealistic globe with none of the layers the app exists for. Upstream `SECURITY.md` sanctions this shape explicitly: *"The Vite server is a development/preview server. If you expose it beyond localhost, put it behind your own auth/proxy."*
+**1. It runs the Vite dev server, on purpose.** When this was built (2026-08-25), about ten of the app's data proxies registered only a `configureServer` hook, so `vite build && vite preview` served a globe with none of the live layers. Upstream has since split the providers into `server/providers/` and most now register `configurePreviewServer` too (checked 2026-10-01), so a preview-server image may now be viable — but it is untested here, and the dev server still works. Upstream `SECURITY.md` sanctions this shape explicitly: *"The Vite server is a development/preview server. If you expose it beyond localhost, put it behind your own auth/proxy."*
 
 **2. The gate is oauth2-proxy, not in-app OIDC.** `trips.azarnoff.us` implements OIDC inside the application (`src/lib/oidc.ts`, public client, browser PKCE). That is not transplantable here: this is unmodified upstream code with no auth layer, and patching a 7,383-line `vite.config.js` would poison every future merge. So the gate sits *in front*, following the pattern already proven on `genii.azarnoff.us`. Same Keycloak, same realm `personal`, same Google federation — different plumbing.
 
@@ -56,13 +56,17 @@ curl -s -o /dev/null -w '%{http_code}\n' https://godseye.azarnoff.us/      # exp
 
 ## Adding API keys
 
-The stack deploys and authenticates fine with no keys at all; the globe just stays dark. `GOOGLE_MAPS_API_KEY` is the only mandatory one and the only metered-by-default one.
+No key is mandatory any more. With none, upstream serves keyless Esri imagery plus flights, satellites, earthquakes, cameras, radio, launches and weather. Photorealistic 3D needs **either** `CESIUM_ION_TOKEN` (free Community plan, personal/non-commercial) **or** `GOOGLE_MAPS_API_KEY` (metered). `OPENAI_API_KEY` (voice + HUD summary) is the other metered one; AISStream (ships), NASA FIRMS (fires) and TomTom (traffic) are free. Upstream README § "API Keys" is the current list.
+
+The secret file is owned by `scottaza`, so no sudo is needed:
 
 ```bash
 cd /Users/Shared/docker/gods-eye-view/deploy
-sudo chmod 0600 secrets/godseye.env && sudo vi secrets/godseye.env && sudo chmod 0400 secrets/godseye.env
+chmod 0600 secrets/godseye.env && vi secrets/godseye.env && chmod 0400 secrets/godseye.env
 /usr/local/bin/docker compose up -d --force-recreate godseye-app
 ```
+
+**Do not use the in-app POWER UP → Provider Settings panel here.** It writes `/app/.env` inside the container, and the entrypoint overwrites that file from the Docker secret on every start — so a key entered there works until the next recreate and then silently vanishes. The secret file is the only durable place.
 
 **Restrict the Maps key in Google Cloud before using it in anger.** It is injected into the browser bundle by design and *is* visible in devtools — upstream is explicit that hiding it is not the plan, restricting it is:
 
@@ -72,18 +76,22 @@ sudo chmod 0600 secrets/godseye.env && sudo vi secrets/godseye.env && sudo chmod
 
 ## Updating
 
+Merge upstream into the fork on a workstation (`deploy/` is additive, so only `.gitignore` has ever conflicted), push, then on the M4:
+
 ```bash
 cd /Users/Shared/docker/gods-eye-view
 git pull origin main
 export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
-cd deploy && /usr/local/bin/docker compose up -d --build
+cd deploy && /usr/local/bin/docker compose build --pull && /usr/local/bin/docker compose up -d
 ```
 
-The source is baked into the image (`COPY . .`) with no bind mount, so a `git pull` alone changes nothing that is running — the rebuild is what ships it.
+The source is baked into the image (`COPY . .`) with no bind mount, so a `git pull` alone changes nothing that is running — the rebuild is what ships it. `--pull` matters: upstream's `engines` requires Node ≥ 24.14, and a cached `node:24-alpine` base can be older.
+
+Upstream warns that installs older than late September 2026 have empty Traffic, Mapped Installations and ALPR layers, because public Overpass servers now refuse them. Keep this fork current.
 
 ## Traps worth knowing before you touch this
 
-- **`HOST=0.0.0.0` in `godseye.env` is not optional, and it does two jobs.** It binds the server so oauth2-proxy can reach it, *and* it flips Vite's `allowedHosts` to `true` (`vite.config.js:7368`). Without it the dev server refuses the `Host: godseye.azarnoff.us` header and every request returns a blocked-host page that looks nothing like an auth failure. The entrypoint refuses to start rather than let this happen quietly.
+- **`HOST=0.0.0.0` in `godseye.env` is not optional, and it does two jobs.** It binds the server so oauth2-proxy can reach it, *and* it flips Vite's `allowedHosts` to `true` (`build/vite.js`, `server.allowedHosts`). Without it the dev server refuses the `Host: godseye.azarnoff.us` header and every request returns a blocked-host page that looks nothing like an auth failure. The entrypoint refuses to start rather than let this happen quietly.
 - **The Keycloak audience mapper is required.** Without it Keycloak issues `aud: [account]` and oauth2-proxy rejects its own session. The code exchange succeeds first, so it presents as a bad client secret. `create-keycloak-client.sh` adds the mapper; don't "fix" this with `--oidc-extra-audience=account`, which widens what the proxy trusts instead of making the token correct.
 - **Never add `internal-only` to this route expecting a LAN allowlist.** On this box it is a deny-all — Docker Desktop SNATs every inbound connection to `172.26.0.1`, so Traefik never sees a real client IP. And adding `172.26.0.0/16` would open the route to the entire internet while reading like a private restriction.
 - **First boot is slow.** Vite pre-bundles Cesium, which is a large dependency; the healthcheck allows a 180 s `start_period` for it. A shorter one flaps the container.
