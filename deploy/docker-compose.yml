@@ -21,6 +21,10 @@ services:
       dockerfile: deploy/Dockerfile
     container_name: godseye-app
     restart: always
+    environment:
+      # Not a secret. Since upstream v0.2.0, HOST=0.0.0.0 no longer accepts any
+      # Host header; without this every proxied request is a 403 "blocked host".
+      GEV_ALLOWED_HOSTS: godseye.azarnoff.us
     secrets:
       - source: godseye_env
         target: /run/secrets/godseye_env

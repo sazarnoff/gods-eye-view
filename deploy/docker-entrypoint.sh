@@ -19,15 +19,22 @@ fi
 cp "$SECRET" /app/.env
 chmod 0400 /app/.env
 
-# HOST=0.0.0.0 does two jobs and both are required here. It binds the server so
-# oauth2-proxy can reach it over the container network, and it flips Vite's
-# `allowedHosts` to true (build/vite.js, server.allowedHosts) — without it the dev server
-# rejects the Host header "godseye.azarnoff.us" outright and every request 403s
-# with a blocked-host page that looks nothing like an auth problem.
+# HOST=0.0.0.0 binds the server so oauth2-proxy can reach it over the container
+# network. Since upstream v0.2.0 it no longer relaxes the Host-header check, so
+# GEV_ALLOWED_HOSTS (set in docker-compose.yml) must name the public host —
+# without it every request 403s with a blocked-host page that looks nothing
+# like an auth problem.
 if ! grep -q '^HOST=0\.0\.0\.0' /app/.env; then
-  echo "godseye: FATAL — .env must set HOST=0.0.0.0 or the Host header is refused." >&2
+  echo "godseye: FATAL — .env must set HOST=0.0.0.0 or oauth2-proxy cannot connect." >&2
   exit 1
 fi
+case ",${GEV_ALLOWED_HOSTS:-}," in
+  *,godseye.azarnoff.us,*) ;;
+  *)
+    echo "godseye: FATAL — GEV_ALLOWED_HOSTS must include godseye.azarnoff.us or the Host header is refused." >&2
+    exit 1
+    ;;
+esac
 
 # Informational only. Since upstream's keyless mode, a boot with neither key
 # serves Esri imagery and every keyless layer; photorealistic 3D needs one of
