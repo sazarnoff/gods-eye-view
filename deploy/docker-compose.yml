@@ -40,6 +40,18 @@ services:
     networks:
       - traefik_default
 
+  # Strips reverse-proxy headers on /api/mapillary/* only, so upstream's
+  # cross-site gate admits the Street Level layer behind oauth2-proxy. See
+  # nginx-mapillary.conf. No host port; reached only from oauth2-proxy.
+  godseye-mapillary-hop:
+    image: nginx:1.27-alpine
+    container_name: godseye-mapillary-hop
+    restart: always
+    volumes:
+      - ./nginx-mapillary.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - traefik_default
+
   godseye-oauth2-proxy:
     image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
     container_name: godseye-oauth2-proxy
@@ -47,6 +59,8 @@ services:
     depends_on:
       godseye-app:
         condition: service_healthy
+      godseye-mapillary-hop:
+        condition: service_started
     command:
       # client-id and client-secret live in the config file, which is a Docker
       # secret. Nothing sensitive is passed as an environment variable.
@@ -56,6 +70,8 @@ services:
       - --oidc-issuer-url=https://auth.azarnoff.us/realms/personal
       - --redirect-url=https://godseye.azarnoff.us/oauth2/callback
       - --upstream=http://godseye-app:4173
+      # Longest prefix wins; the request path is forwarded unchanged.
+      - --upstream=http://godseye-mapillary-hop:8080/api/mapillary/
       - --reverse-proxy=true
       # Straight to Keycloak rather than an interstitial "Sign in with…" page.
       - --skip-provider-button=true
